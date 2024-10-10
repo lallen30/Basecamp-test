@@ -33,17 +33,27 @@ def get_projects(token):
     try:
         oauth = OAuth2Session(client_id, token=token)
         url = f'https://3.basecampapi.com/{account_id}/projects.json'
-        response = oauth.get(url)
+        all_projects = []
         
-        logging.debug(f"Basecamp API response status: {response.status_code}")
-        logging.debug(f"Basecamp API response headers: {response.headers}")
-        logging.debug(f"Basecamp API response content: {response.text}")
+        while url:
+            response = oauth.get(url)
+            logging.debug(f"Basecamp API response status: {response.status_code}")
+            
+            if response.status_code == 200:
+                projects = response.json()
+                all_projects.extend(projects)
+                
+                # Check for next page
+                link_header = response.headers.get('Link', '')
+                if 'rel="next"' in link_header:
+                    url = link_header.split(';')[0].strip('<>')
+                else:
+                    url = None
+            else:
+                logging.error(f"Failed to fetch projects: {response.text}")
+                return None
         
-        if response.status_code == 200:
-            return response.json()
-        else:
-            logging.error(f"Failed to fetch projects: {response.text}")
-            return None
+        return all_projects
     except Exception as e:
         logging.exception(f"An error occurred while fetching projects: {str(e)}")
         return None

@@ -9,6 +9,7 @@
   <h1>Basecamp Projects</h1>
 
   {% if projects %}
+  <p>Total Projects: {{ projects|length }}</p>
   <ul>
     {% for project in projects %}
     <li>{{ project.name }}</li>
