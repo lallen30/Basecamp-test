@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <title>Basecamp Projects</title>
+</head>
+
+<body>
+  <h1>Basecamp Projects</h1>
+
+  {% if projects %}
+  <ul>
+    {% for project in projects %}
+    <li>{{ project.name }}</li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p>No projects found or unable to fetch projects.</p>
+  {% endif %}
+</body>
+
+</html>
