@@ -3,21 +3,170 @@
 
 <head>
   <title>Basecamp Projects</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+      max-width: 800px;
+      margin: 0 auto;
+    }
+
+    h1,
+    h2 {
+      color: #333;
+    }
+
+    select,
+    input[type="text"],
+    textarea {
+      width: 100%;
+      padding: 10px;
+      margin-top: 10px;
+      font-size: 16px;
+      box-sizing: border-box;
+    }
+
+    textarea {
+      height: 100px;
+      resize: vertical;
+    }
+
+    #todo-lists,
+    #todo-form {
+      margin-top: 20px;
+    }
+
+    .error {
+      color: red;
+      font-weight: bold;
+    }
+
+    button {
+      background-color: #4CAF50;
+      border: none;
+      color: white;
+      padding: 15px 32px;
+      text-align: center;
+      text-decoration: none;
+      display: inline-block;
+      font-size: 16px;
+      margin-top: 10px;
+      cursor: pointer;
+    }
+
+    button:disabled {
+      background-color: #cccccc;
+      cursor: not-allowed;
+    }
+  </style>
 </head>
 
 <body>
   <h1>Basecamp Projects</h1>
 
-  {% if projects %}
-  <p>Total Projects: {{ projects|length }}</p>
-  <ul>
+  <select id="project-select">
+    <option value="">Select a project</option>
     {% for project in projects %}
-    <li>{{ project.name }}</li>
+    <option value="{{ project.id }}">{{ project.name }}</option>
     {% endfor %}
-  </ul>
-  {% else %}
-  <p>No projects found or unable to fetch projects.</p>
-  {% endif %}
+  </select>
+
+  <div id="todo-lists">
+    <h2>Todo Lists</h2>
+    <select id="todo-list-select">
+      <option value="">Select a todo list</option>
+    </select>
+  </div>
+
+  <div id="todo-form">
+    <h2>Add New Todo</h2>
+    <form id="new-todo-form">
+      <input type="text" id="todo-title" placeholder="Todo Title" required>
+      <textarea id="todo-notes" placeholder="Notes (optional)"></textarea>
+      <button type="submit" id="submit-todo" disabled>Add Todo</button>
+    </form>
+  </div>
+
+  <script>
+    const projectSelect = document.getElementById('project-select')
+    const todoListSelect = document.getElementById('todo-list-select')
+    const newTodoForm = document.getElementById('new-todo-form')
+    const submitTodoButton = document.getElementById('submit-todo')
+
+    projectSelect.addEventListener('change', function () {
+      var selectedProjectId = this.value
+      todoListSelect.innerHTML = '<option value="">Select a todo list</option>'
+      submitTodoButton.disabled = true
+
+      if (selectedProjectId) {
+        fetch('/todo_lists/' + selectedProjectId)
+          .then(response => {
+            if (!response.ok) {
+              return response.json().then(err => { throw err })
+            }
+            return response.json()
+          })
+          .then(data => {
+            if (!data || data.length === 0) {
+              todoListSelect.innerHTML = '<option value="">No todo lists found</option>'
+            } else {
+              data.forEach(todoList => {
+                var option = document.createElement('option')
+                option.value = todoList.id
+                option.textContent = todoList.name
+                todoListSelect.appendChild(option)
+              })
+            }
+          })
+          .catch(error => {
+            console.error('Error:', error)
+            todoListSelect.innerHTML = '<option value="" class="error">Error: ' + (error.error || JSON.stringify(error)) + '</option>'
+          })
+      }
+    })
+
+    todoListSelect.addEventListener('change', function () {
+      submitTodoButton.disabled = !this.value
+    })
+
+    newTodoForm.addEventListener('submit', function (e) {
+      e.preventDefault()
+      const todoTitle = document.getElementById('todo-title').value
+      const todoNotes = document.getElementById('todo-notes').value
+      const selectedProjectId = projectSelect.value
+      const selectedTodoListId = todoListSelect.value
+
+      fetch('/create_todo', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          projectId: selectedProjectId,
+          todoListId: selectedTodoListId,
+          title: todoTitle,
+          notes: todoNotes
+        }),
+      })
+        .then(response => {
+          if (!response.ok) {
+            return response.json().then(err => { throw err })
+          }
+          return response.json()
+        })
+        .then(data => {
+          console.log('Todo created successfully:', data)
+          alert('Todo created successfully!')
+          // Clear the form
+          this.reset()
+          submitTodoButton.disabled = true
+        })
+        .catch(error => {
+          console.error('Error:', error)
+          alert('Failed to create todo: ' + (error.error || JSON.stringify(error)))
+        })
+    });
+  </script>
 </body>
 
 </html>
