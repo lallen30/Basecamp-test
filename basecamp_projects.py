@@ -3,6 +3,8 @@ from flask import Flask, render_template, request, redirect, url_for, session, j
 import logging
 from requests_oauthlib import OAuth2Session
 from dotenv import load_dotenv
+from werkzeug.utils import secure_filename
+import requests
 
 # Load environment variables from .env file
 load_dotenv()
@@ -117,9 +119,42 @@ def get_todo_lists(token, project_id):
         logging.exception(f"An error occurred while fetching todo lists: {str(e)}")
         return None
 
+def get_todos(token, project_id, todolist_id):
+    logging.debug(f"Attempting to fetch todos for project {project_id}, todolist {todolist_id}")
+    try:
+        oauth = OAuth2Session(client_id, token=token)
+        headers = {
+            'User-Agent': 'YourAppName (yourname@example.com)'
+        }
+        url = f'https://3.basecampapi.com/{account_id}/buckets/{project_id}/todolists/{todolist_id}/todos.json'
+        logging.debug(f"Requesting URL: {url}")
+        response = oauth.get(url, headers=headers)
+        
+        logging.debug(f"Todos API response status: {response.status_code}")
+        logging.debug(f"Todos API response headers: {response.headers}")
+        logging.debug(f"Todos API response content: {response.text[:10000]}...")  # Log first 1000 characters
+        
+        if response.status_code == 200:
+            todos = response.json()
+            return [{'id': todo['id'], 'title': todo['content']} for todo in todos]
+        else:
+            logging.error(f"Failed to fetch todos: {response.text}")
+            return None
+    except Exception as e:
+        logging.exception(f"An error occurred while fetching todos: {str(e)}")
+        return None
+
 @app.route('/')
 def index():
-    logging.debug("Index route accessed")
+    return redirect(url_for('home'))
+
+@app.route('/home')
+def home():
+    return render_template('home.html')
+
+@app.route('/login')
+def login():
+    logging.debug("Login route accessed")
     oauth = OAuth2Session(client_id, redirect_uri=redirect_uri)
     authorization_url, state = oauth.authorization_url(
         authorization_base_url,
@@ -141,9 +176,27 @@ def callback():
     )
     logging.debug(f"Token received: {token}")
     session['oauth_token'] = token
+    return redirect(url_for('projects'))
+
+@app.route('/projects')
+def projects():
+    token = session.get('oauth_token')
+    if not token:
+        return redirect(url_for('login'))
     projects = get_projects(token)
     if projects:
         return render_template('projects.html', projects=projects)
+    else:
+        return "Failed to retrieve projects", 500
+
+@app.route('/todos')
+def todos():
+    token = session.get('oauth_token')
+    if not token:
+        return redirect(url_for('login'))
+    projects = get_projects(token)
+    if projects:
+        return render_template('todos.html', projects=projects)
     else:
         return "Failed to retrieve projects", 500
 
@@ -159,6 +212,25 @@ def todo_lists(project_id):
         return jsonify({"error": "Failed to fetch todo lists. The project might not exist, you might not have access to it, or there was an API error. Please check the server logs for more details."}), 500
     return jsonify(todo_lists)
 
+@app.route('/todos/<project_id>/<todolist_id>')
+def get_todos_route(project_id, todolist_id):
+    logging.debug(f"get_todos_route accessed with project_id: {project_id}, todolist_id: {todolist_id}")
+    token = session.get('oauth_token')
+    if not token:
+        logging.error("No OAuth token found in session")
+        return jsonify({"error": "No OAuth token found. Please re-authenticate."}), 401
+    
+    try:
+        todos = get_todos(token, project_id, todolist_id)
+        if todos is None:
+            logging.error(f"Failed to fetch todos for project {project_id}, todolist {todolist_id}")
+            return jsonify({"error": "Failed to fetch todos. Please check the server logs for more details."}), 500
+        logging.debug(f"Successfully fetched {len(todos)} todos")
+        return jsonify(todos)
+    except Exception as e:
+        logging.exception(f"An unexpected error occurred while fetching todos: {str(e)}")
+        return jsonify({"error": "An unexpected error occurred. Please check the server logs for more details."}), 500
+
 @app.route('/test')
 def test():
     logging.debug("Test route accessed")
@@ -168,10 +240,6 @@ def test():
 def hello():
     return "Hello, World!"
 
-# Add this new import at the top of the file
-from flask import request
-
-# Add this new function to create a todo
 def create_todo(token, project_id, todolist_id, title, notes):
     logging.debug(f"Attempting to create a new todo in project {project_id}, todolist {todolist_id}")
     try:
@@ -199,7 +267,6 @@ def create_todo(token, project_id, todolist_id, title, notes):
         logging.exception(f"An error occurred while creating todo: {str(e)}")
         return None
 
-# Add this new route to handle the form submission
 @app.route('/create_todo', methods=['POST'])
 def handle_create_todo():
     token = session.get('oauth_token')
@@ -221,6 +288,42 @@ def handle_create_todo():
         return jsonify({"message": "Todo created successfully", "todo": result}), 201
     else:
         return jsonify({"error": "Failed to create todo. Please check the server logs for more details."}), 500
+
+@app.route('/upload_attachment/<project_id>', methods=['POST'])
+def upload_attachment(project_id):
+    token = session.get('oauth_token')
+    if not token:
+        return jsonify({"error": "No OAuth token found. Please re-authenticate."}), 401
+
+    if 'file' not in request.files:
+        return jsonify({"error": "No file part"}), 400
+
+    file = request.files['file']
+
+    if file.filename == '':
+        return jsonify({"error": "No selected file"}), 400
+
+    if file:
+        filename = secure_filename(file.filename)
+        upload_url = f'https://3.basecampapi.com/{account_id}/attachments.json'
+        
+        headers = {
+            'Authorization': f'Bearer {token["access_token"]}',
+            'Content-Type': file.content_type
+        }
+
+        params = {
+            'name': filename
+        }
+
+        try:
+            response = requests.post(upload_url, headers=headers, params=params, data=file)
+            response.raise_for_status()
+            attachment_data = response.json()
+            return jsonify({"attachable_sgid": attachment_data['attachable_sgid']}), 200
+        except requests.RequestException as e:
+            logging.error(f"Error uploading attachment: {str(e)}")
+            return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
     print("Starting Flask app on http://0.0.0.0:8001")
